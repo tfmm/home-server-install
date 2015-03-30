@@ -1,0 +1,87 @@
+#This file is part of TFMM's Home Server Installation Script.
+
+#TFMM's Home Server Installation Script is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+#TFMM's Home Server Installation Script is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
+
+#You should have received a copy of the GNU General Public License along with TFMM's Home Server Installation Script.  If not, see <http://www.gnu.org/licenses/>.
+# ©2014 Russ Long, TFMM
+##
+upstream php-handler {
+ server 127.0.0.1:9000;
+}
+server {
+ listen 80; ## listen for ipv4; this line is default and implied
+ listen [::]:80 default_server ipv6only=on; ## listen for ipv6
+ root /srv/www/FQDN/public_html;
+ server_name FQDN;
+ return 302 https://$server_name$request_uri;
+# pass the PHP scripts to FastCGI server listening on 127.0.0.1:9000
+#
+ location ~ \.php$ {
+ # NOTE: You should have "cgi.fix_pathinfo = 0;" in php.ini
+ include /etc/nginx/fastcgi_params;
+ fastcgi_pass 127.0.0.1:9000;
+ fastcgi_index index.php;
+ fastcgi_param SCRIPT_FILENAME /srv/www/FQDN/public_html/$fastcgi_script_name;
+ }
+}
+# HTTPS server
+#
+server {
+ listen 443;
+ listen [::]:443 default_server ipv6only=on; ## listen for ipv6
+ server_name FQDN;
+ root /srv/www/FQDN/public_html;
+ #index index.html index.htm;
+ ssl on;
+ ssl_certificate /home/ssl/certificate.crt;
+ ssl_certificate_key /home/ssl/privatekey.key;
+ ssl_session_timeout 5m;
+ ssl_protocols SSLv3 TLSv1;
+ ssl_ciphers ALL:!ADH:!EXPORT56:RC4+RSA:+HIGH:+MEDIUM:+LOW:+SSLv3:+EXP;
+ ssl_prefer_server_ciphers on;
+ client_max_body_size 10G; # set max upload size
+ fastcgi_buffers 64 4K;
+ rewrite ^/caldav(.*)$ /remote.php/caldav$1 redirect;
+ rewrite ^/carddav(.*)$ /remote.php/carddav$1 redirect;
+ rewrite ^/webdav(.*)$ /remote.php/webdav$1 redirect;
+ index index.php;
+ error_page 403 /core/templates/403.php;
+ error_page 404 /core/templates/404.php;
+ location = /robots.txt {
+ allow all;
+ log_not_found off;
+ access_log off;
+ }
+ location ~ ^/(data|config|\.ht|db_structure\.xml|README) {
+ deny all;
+ }
+ location / {
+ rewrite ^/.well-known/carddav /remote.php/carddav/ redirect;
+ rewrite ^/.well-known/caldav /remote.php/caldav/ redirect;
+ rewrite ^(/core/doc/[^\/]+/)$ $1/index.html;
+ try_files $uri $uri/ index.php;
+ }
+ location ~ ^(.+?\.php)(/.*)?$ {
+ try_files $1 = 404;
+ include fastcgi_params;
+ fastcgi_param SCRIPT_FILENAME $document_root$1;
+ fastcgi_param PATH_INFO $2;
+ fastcgi_param HTTPS on;
+ fastcgi_pass php-handler;
+ }
+# Optional: set long EXPIRES header on static assets
+ location ~* ^.+\.(jpg|jpeg|gif|bmp|ico|png|css|js|swf)$ {
+ expires 30d;
+# Optional: Don't log access to assets
+ access_log off;
+ }
+ location ~ \.php$ {
+ fastcgi_pass 127.0.0.1:9000;
+ fastcgi_index index.php;
+ fastcgi_read_timeout 300;
+ fastcgi_param SCRIPT_FILENAME /srv/www/FQDN/public_html/$fastcgi_script_name;
+ include fastcgi_params;
+ }
+}
